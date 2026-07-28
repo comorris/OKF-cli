@@ -5,6 +5,29 @@ managing OKF v0.2 knowledge bundles. It uses only standard filesystem APIs
 and PyYAML; paths are supplied explicitly or discovered from the current
 project.
 
+## What's new in 0.2.0
+
+The `okf-provenance-population` release adds the workflow needed to build and
+maintain curated, evidence-backed bundles:
+
+- `concept create` accepts a primary `--resource` and structured provenance
+  through `--sources-file`.
+- `concept update` safely patches existing concepts while preserving omitted
+  metadata, body content, sources, and extension fields.
+- Source validation checks OKF metadata and reports missing relative resources
+  as warnings rather than conformance errors.
+- `scripts/extract_pi_archive.py` streams Pi conversation text from ZIP
+  archives with bounded per-record memory use.
+- Package version and the default `generated.by` actor now share one version
+  source, so installed capabilities are distinguishable as `okf-cli 0.2.0`.
+
+This functionality was developed for the Hermes Fitness knowledge population:
+a privacy-preserving, thematic synthesis of current code, tests, documentation,
+plans, and conversation history. Current code and tests remain authoritative;
+conversation archives provide rationale and history rather than proof of
+current behavior. See [CHANGELOG.md](CHANGELOG.md) for the complete release
+summary.
+
 ## Installation
 
 ```bash
@@ -17,6 +40,15 @@ python3.11 -m venv .venv
 
 The editable virtualenv installation is useful for development. The console
 command is `okf`.
+
+To replace an older global uv installation and verify that the provenance
+commands are available:
+
+```bash
+uv tool install --force .
+okf --version                         # okf-cli 0.2.0
+okf concept update --help             # includes --resource and --sources-file
+```
 
 ## Commands
 
@@ -86,6 +118,30 @@ no log entry. Meaningful updates atomically write the concept, rebuild indexes,
 and append one `Update` log entry unless `--no-index` or `--no-log` is passed.
 Use `concept update` for changes instead of replacing an existing concept with
 `concept create --force`.
+
+## Pi conversation archive extraction
+
+The optional helper script inventories and streams an archive without
+extracting ZIP members, using a configurable per-record read bound:
+
+```bash
+python scripts/extract_pi_archive.py \
+  --archive /path/to/pi-conversations.zip \
+  --bundle /path/to/project/okf \
+  --out /tmp/project-sessions
+```
+
+The output path is a new directory containing `inventory.json` and
+`sessions.jsonl`. Every JSONL session in the archive is emitted after events are
+filtered to user and assistant text; `--bundle` verifies the project environment
+and ensures the output remains outside the managed bundle. Oversized, malformed,
+or non-object records are skipped and counted in each session's
+`skipped_records` field. Member ordering is deterministic.
+
+Treat the output directory as temporary sensitive working data. Select only
+relevant sessions, synthesize only non-personal rationale or history into
+concepts, attach source provenance, validate the bundle, and remove the output
+directory when finished.
 
 ## Configuration and portability
 
