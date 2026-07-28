@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "okf-cli"
+version = "0.1.0"
+description = "Portable noninteractive CLI for OKF knowledge bundles"
+requires-python = ">=3.11"
+dependencies = [
+  "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "build>=1.0",
+  "pytest>=8.0",
+]
+
+[project.scripts]
+okf = "okf_cli.cli:entrypoint"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
