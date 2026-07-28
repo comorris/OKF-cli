@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
+from pathlib import Path
 from typing import Sequence
 
 from . import __version__
+from .config import config_report
 from .errors import OkfError, OperationalError
 from .output import CommandResult, render_error, render_result
 
@@ -21,6 +24,7 @@ def build_parser() -> argparse.ArgumentParser:
         dest="output_format",
         help="render results as text or JSON",
     )
+    parser.add_argument("--catalog", dest="catalog", type=Path, help="catalog root")
     parser.add_argument("--version", action="version", version=f"okf-cli {__version__}")
 
     commands = parser.add_subparsers(dest="command", required=True)
@@ -41,7 +45,10 @@ def command_name(args: argparse.Namespace) -> str:
 
 def dispatch_command(args: argparse.Namespace) -> CommandResult:
     if args.command == "config" and args.config_command == "show":
-        return CommandResult(command="config.show")
+        return CommandResult(
+            command="config.show",
+            data=config_report(args.catalog, os.environ, Path.home()),
+        )
     raise OperationalError(f"unsupported command: {command_name(args)}")
 
 
