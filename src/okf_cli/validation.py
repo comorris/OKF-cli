@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import Any, Literal, Mapping
 from urllib.parse import unquote, urlsplit
 
-from .documents import ConceptDocument, DocumentError, parse_frontmatter
+from .documents import ConceptDocument, DocumentError, parse_concept, parse_frontmatter
+from .errors import ValidationError
 
 
 @dataclass(frozen=True)
@@ -18,12 +19,27 @@ class Finding:
     message: str
 
 
+class ValidationFailure(ValidationError):
+    def __init__(self, findings: list[Finding]) -> None:
+        self.findings = tuple(findings)
+        super().__init__("bundle validation failed")
+
+
 def _error(code: str, path: str, message: str) -> Finding:
     return Finding("error", code, path, message)
 
 
 def _warning(code: str, path: str, message: str) -> Finding:
     return Finding("warning", code, path, message)
+
+
+def finding_dict(finding: Finding) -> dict[str, str]:
+    return {
+        "severity": finding.severity,
+        "code": finding.code,
+        "path": finding.path,
+        "message": finding.message,
+    }
 
 
 def _iso_datetime(value: object) -> bool:
@@ -200,3 +216,46 @@ def validate_log(text: str, *, path: str) -> list[Finding]:
             findings.append(_error("log-order", path, "log date headings must be newest first"))
         previous = current
     return findings
+
+
+def _finding_sort_key(finding: Finding) -> tuple[str, str, str, str]:
+    return (finding.path.casefold(), finding.severity, finding.code, finding.message)
+
+
+def validate_bundle(bundle_root: Path, *, today: date | None = None) -> list[Finding]:
+    bundle_root = Path(bundle_root)
+    if not bundle_root.is_dir():
+        raise FileNotFoundError(f"bundle does not exist: {bundle_root}")
+    findings: list[Finding] = []
+    if not (bundle_root / "bundle.md").is_file():
+        findings.append(_error("missing-bundle-metadata", "bundle.md", "bundle.md does not exist"))
+    markdown_files = sorted(
+        (path for path in bundle_root.rglob("*.md") if path.is_file()),
+        key=lambda path: path.relative_to(bundle_root).as_posix().casefold(),
+    )
+    for path in markdown_files:
+        relative = path.relative_to(bundle_root).as_posix()
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            findings.append(_error("unreadable-document", relative, str(exc)))
+            continue
+        if path.name == "index.md":
+            findings.extend(validate_index(text, root=path.parent == bundle_root, path=relative))
+        elif path.name == "log.md":
+            findings.extend(validate_log(text, path=relative))
+        else:
+            try:
+                document = parse_concept(text)
+            except DocumentError as exc:
+                findings.append(_error("malformed-frontmatter", relative, str(exc)))
+                continue
+            findings.extend(
+                validate_concept(
+                    document,
+                    path=relative,
+                    bundle_root=bundle_root,
+                    today=today,
+                )
+            )
+    return sorted(findings, key=_finding_sort_key)

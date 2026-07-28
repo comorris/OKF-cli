@@ -14,10 +14,12 @@ from .concepts import create_concept
 from .config import config_report, resolve_catalog
 from .errors import ConfigurationError, OkfError, OperationalError
 from .filesystem import FileSystem
+from .indexes import rebuild_indexes
 from .logs import add_log
 from .operations import OperationResult
-from .output import CommandResult, render_error, render_result
+from .output import CommandResult, render_error, render_result, render_validation_error
 from .paths import discover_bundle
+from .validation import ValidationFailure, finding_dict, validate_bundle
 
 
 def _add_format_option(parser: argparse.ArgumentParser) -> None:
@@ -117,6 +119,14 @@ def build_parser() -> argparse.ArgumentParser:
     body.add_argument("--body-file", type=Path)
     concept_create.add_argument("--dry-run", action="store_true")
 
+    index = commands.add_parser("index", help="manage indexes")
+    index_commands = index.add_subparsers(dest="index_command", required=True)
+    index_rebuild = index_commands.add_parser("rebuild", help="rebuild all indexes")
+    _add_format_option(index_rebuild)
+    _add_bundle_option(index_rebuild)
+    index_rebuild.add_argument("--catalog-mode", action="store_true")
+    index_rebuild.add_argument("--dry-run", action="store_true")
+
     log = commands.add_parser("log", help="manage update logs")
     log_commands = log.add_subparsers(dest="log_command", required=True)
     log_add = log_commands.add_parser("add", help="append a log entry")
@@ -127,6 +137,10 @@ def build_parser() -> argparse.ArgumentParser:
     log_add.add_argument("--message", required=True)
     log_add.add_argument("--date")
     log_add.add_argument("--dry-run", action="store_true")
+
+    validate = commands.add_parser("validate", help="validate a bundle")
+    _add_format_option(validate)
+    _add_bundle_option(validate)
 
     return parser
 
@@ -255,6 +269,23 @@ def dispatch_command(args: argparse.Namespace) -> CommandResult:
             )
             return CommandResult(command=command, data=_operation_data(result))
 
+        if command == "index.rebuild":
+            bundle_path = getattr(args, "bundle", None) or discover_bundle(Path.cwd())
+            if not bundle_path.is_dir():
+                raise ConfigurationError(f"bundle does not exist: {bundle_path}")
+            fs = FileSystem(dry_run=args.dry_run)
+            indexes = rebuild_indexes(bundle_path, fs, catalog=args.catalog_mode)
+            data: dict[str, object] = {
+                "bundle": str(bundle_path),
+                "indexes": [str(path) for path in indexes],
+            }
+            if fs.changes:
+                data["changes"] = [
+                    {"operation": change.operation, "path": str(change.path)}
+                    for change in fs.changes
+                ]
+            return CommandResult(command=command, data=data)
+
         if command == "log.add":
             bundle_path = getattr(args, "bundle", None) or discover_bundle(Path.cwd())
             fs = FileSystem(dry_run=args.dry_run)
@@ -267,6 +298,21 @@ def dispatch_command(args: argparse.Namespace) -> CommandResult:
                 fs=fs,
             )
             return CommandResult(command=command, data=_operation_data(result))
+
+        if command == "validate":
+            bundle_path = getattr(args, "bundle", None) or discover_bundle(Path.cwd())
+            if not bundle_path.is_dir():
+                raise ConfigurationError(f"bundle does not exist: {bundle_path}")
+            findings = validate_bundle(bundle_path)
+            data = {
+                "bundle": str(bundle_path),
+                "findings": [finding_dict(finding) for finding in findings],
+            }
+            errors = [finding for finding in findings if finding.severity == "error"]
+            warnings = tuple(finding.message for finding in findings if finding.severity == "warning")
+            if errors:
+                raise ValidationFailure(findings)
+            return CommandResult(command=command, data=data, warnings=warnings)
     except OkfError:
         raise
     except (OSError, ValueError) as exc:
@@ -290,6 +336,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     command = command_name(args)
     try:
         result = dispatch_command(args)
+    except ValidationFailure as exc:
+        rendered = render_validation_error(command, exc.findings, format_name)
+        if format_name == "json":
+            sys.stdout.write(rendered)
+        else:
+            sys.stderr.write(rendered)
+        return int(exc.exit_code)
     except OkfError as exc:
         sys.stderr.write(render_error(command, exc, format_name))
         return int(exc.exit_code)
