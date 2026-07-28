@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from okf_cli import cli
+from okf_cli import __version__, cli
+from okf_cli.catalog import DEFAULT_ACTOR
 from okf_cli.cli import main
 from okf_cli.errors import ConflictError
 
@@ -15,8 +16,12 @@ def test_version_from_console_command(capsys: pytest.CaptureFixture[str]) -> Non
 
     captured = capsys.readouterr()
     assert code == 0
-    assert captured.out.strip() == "okf-cli 0.1.0"
+    assert captured.out.strip() == "okf-cli 0.2.0"
     assert captured.err == ""
+
+
+def test_default_actor_tracks_package_version() -> None:
+    assert DEFAULT_ACTOR == f"okf-cli/{__version__}"
 
 
 def test_missing_command_is_usage_error(capsys: pytest.CaptureFixture[str]) -> None:

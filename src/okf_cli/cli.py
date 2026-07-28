@@ -7,7 +7,7 @@ from datetime import date
 from pathlib import Path
 from typing import Sequence
 
-from . import __version__
+from . import DEFAULT_ACTOR, __version__
 from .bundles import init_bundle
 from .catalog import init_catalog, list_bundles, register_bundle
 from .concepts import _UNSET, create_concept, update_concept
@@ -70,7 +70,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_catalog_option(catalog_init)
     catalog_init.add_argument("--title", required=True)
     catalog_init.add_argument("--description", required=True)
-    catalog_init.add_argument("--generated-by", default="okf-cli/0.1.0")
+    catalog_init.add_argument("--generated-by", default=DEFAULT_ACTOR)
     catalog_init.add_argument("--dry-run", action="store_true")
 
     bundle = commands.add_parser("bundle", help="manage project bundles")
@@ -82,7 +82,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_catalog_option(bundle_init)
     bundle_init.add_argument("--title", required=True)
     bundle_init.add_argument("--description", required=True)
-    bundle_init.add_argument("--generated-by", default="okf-cli/0.1.0")
+    bundle_init.add_argument("--generated-by", default=DEFAULT_ACTOR)
     bundle_init.add_argument("--no-gitignore", action="store_true")
     bundle_init.add_argument("--no-register", "--no-registration", dest="no_register", action="store_true")
     bundle_init.add_argument("--no-index", dest="no_index", action="store_true")
@@ -93,7 +93,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_format_option(bundle_register)
     _add_bundle_option(bundle_register)
     _add_catalog_option(bundle_register)
-    bundle_register.add_argument("--generated-by", default="okf-cli/0.1.0")
+    bundle_register.add_argument("--generated-by", default=DEFAULT_ACTOR)
     bundle_register.add_argument("--dry-run", action="store_true")
 
     bundle_list = bundle_commands.add_parser("list", help="list registered bundles")
@@ -113,7 +113,7 @@ def build_parser() -> argparse.ArgumentParser:
     concept_create.add_argument("--status", choices=("draft", "stable", "deprecated"))
     concept_create.add_argument("--resource")
     concept_create.add_argument("--sources-file", type=Path)
-    concept_create.add_argument("--generated-by", default="okf-cli/0.1.0")
+    concept_create.add_argument("--generated-by", default=DEFAULT_ACTOR)
     concept_create.add_argument("--force", action="store_true")
     concept_create.add_argument("--no-index", dest="no_index", action="store_true")
     concept_create.add_argument("--no-log", dest="no_log", action="store_true")
@@ -133,7 +133,7 @@ def build_parser() -> argparse.ArgumentParser:
     concept_update.add_argument("--status", choices=("draft", "stable", "deprecated"))
     concept_update.add_argument("--resource")
     concept_update.add_argument("--sources-file", type=Path)
-    concept_update.add_argument("--generated-by", default="okf-cli/0.1.0")
+    concept_update.add_argument("--generated-by", default=DEFAULT_ACTOR)
     concept_update.add_argument("--no-index", dest="no_index", action="store_true")
     concept_update.add_argument("--no-log", dest="no_log", action="store_true")
     update_body = concept_update.add_mutually_exclusive_group()

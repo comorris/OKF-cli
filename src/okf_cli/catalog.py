@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from . import DEFAULT_ACTOR
 from .documents import DocumentError, parse_concept, render_concept, ConceptDocument
 from .errors import ConfigurationError, ConflictError
 from .filesystem import FileSystem
@@ -14,7 +15,6 @@ from .indexes import rebuild_indexes
 from .logs import append_log
 from .operations import OperationResult, write_if_changed
 
-DEFAULT_ACTOR = "okf-cli/0.1.0"
 
 
 def _timestamp(now: datetime | None) -> str:
