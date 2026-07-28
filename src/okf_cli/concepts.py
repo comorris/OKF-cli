@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from .documents import ConceptDocument, DocumentError, parse_concept, render_concept
 from .errors import ConfigurationError, ConflictError
@@ -11,6 +11,7 @@ from .indexes import rebuild_indexes
 from .logs import append_log
 from .operations import OperationResult, write_if_changed
 from .paths import resolve_concept_path
+from .sources import validate_sources_value
 
 _RESERVED_IDS = {"index", "log", "bundle"}
 _VALID_STATUS = {"draft", "stable", "deprecated"}
@@ -39,6 +40,8 @@ def _concept_metadata(
     status: str | None,
     generated_by: str,
     generated_at: str,
+    resource: str | None,
+    sources: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     if not isinstance(concept_type, str) or not concept_type.strip():
         raise ConfigurationError("concept type must be non-empty")
@@ -53,6 +56,15 @@ def _concept_metadata(
         raise ConfigurationError("tags must contain non-empty strings")
     if status is not None and status not in _VALID_STATUS:
         raise ConfigurationError(f"invalid status: {status}")
+    if resource is not None and (not isinstance(resource, str) or not resource.strip()):
+        raise ConfigurationError("concept resource must be a non-empty string")
+    if isinstance(sources, str):
+        raise ConfigurationError("sources must be a sequence of mappings")
+    source_values = list(sources)
+    source_findings = validate_sources_value(source_values, path="sources")
+    source_errors = [finding for finding in source_findings if finding.severity == "error"]
+    if source_errors:
+        raise ConfigurationError("; ".join(finding.message for finding in source_errors))
     _validate_actor(generated_by)
 
     metadata: dict[str, Any] = {"type": concept_type}
@@ -64,6 +76,10 @@ def _concept_metadata(
         metadata["tags"] = tag_values
     if status is not None:
         metadata["status"] = status
+    if resource is not None:
+        metadata["resource"] = resource
+    if source_values:
+        metadata["sources"] = [dict(source) for source in source_values]
     metadata["generated"] = {"by": generated_by, "at": generated_at}
     return metadata
 
@@ -84,6 +100,8 @@ def create_concept(
     log_change: bool,
     fs: FileSystem,
     now: datetime | None = None,
+    resource: str | None = None,
+    sources: Sequence[Mapping[str, Any]] = (),
 ) -> OperationResult:
     bundle_root = Path(bundle_root)
     if not fs.is_dir(bundle_root):
@@ -110,6 +128,8 @@ def create_concept(
         status=status,
         generated_by=generated_by,
         generated_at=_timestamp(now),
+        resource=resource,
+        sources=sources,
     )
     write_if_changed(fs, target, render_concept(ConceptDocument(metadata, body)))
 

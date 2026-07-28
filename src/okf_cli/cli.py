@@ -18,6 +18,7 @@ from .indexes import rebuild_indexes
 from .logs import add_log
 from .operations import OperationResult
 from .output import CommandResult, render_error, render_result, render_validation_error
+from .sources import load_sources_file
 from .paths import discover_bundle
 from .validation import ValidationFailure, finding_dict, validate_bundle
 
@@ -110,6 +111,8 @@ def build_parser() -> argparse.ArgumentParser:
     concept_create.add_argument("--description")
     concept_create.add_argument("--tag", dest="tags", action="append", default=[])
     concept_create.add_argument("--status", choices=("draft", "stable", "deprecated"))
+    concept_create.add_argument("--resource")
+    concept_create.add_argument("--sources-file", type=Path)
     concept_create.add_argument("--generated-by", default="okf-cli/0.1.0")
     concept_create.add_argument("--force", action="store_true")
     concept_create.add_argument("--no-index", dest="no_index", action="store_true")
@@ -262,6 +265,8 @@ def dispatch_command(args: argparse.Namespace) -> CommandResult:
                 status=args.status,
                 body=_body_from_args(args),
                 generated_by=args.generated_by,
+                resource=args.resource,
+                sources=load_sources_file(args.sources_file) if args.sources_file else (),
                 force=args.force,
                 rebuild=not args.no_index,
                 log_change=not args.no_log,

@@ -37,6 +37,8 @@ def create(bundle: Path, concept_id: str, **kwargs: object) -> object:
         "description": None,
         "tags": (),
         "status": None,
+        "resource": None,
+        "sources": (),
         "body": "",
         "generated_by": "test/1.0",
         "force": False,
@@ -214,6 +216,113 @@ def test_concept_create_dry_run_reports_all_cascading_changes(tmp_path: Path) ->
     assert bundle / "architecture" / "index.md" in paths
     assert bundle / "index.md" in paths
     assert bundle / "log.md" in paths
+
+
+def test_concept_create_writes_resource(tmp_path: Path) -> None:
+    bundle = make_bundle(tmp_path)
+
+    create(bundle, "concept", resource="README.md")
+
+    metadata = parse_concept((bundle / "concept.md").read_text(encoding="utf-8")).metadata
+    assert metadata["resource"] == "README.md"
+
+
+def test_concept_create_writes_sources_from_service(tmp_path: Path) -> None:
+    bundle = make_bundle(tmp_path)
+    sources = (
+        {"id": "readme", "resource": "README.md", "extension": {"review": "required"}},
+    )
+
+    create(bundle, "concept", sources=sources)
+
+    metadata = parse_concept((bundle / "concept.md").read_text(encoding="utf-8")).metadata
+    assert metadata["sources"] == list(sources)
+
+
+def test_concept_create_cli_loads_sources_file(tmp_path: Path) -> None:
+    bundle = make_bundle(tmp_path)
+    sources_file = tmp_path / "sources.yaml"
+    sources_file.write_text(
+        "- id: readme\n  resource: README.md\n  title: Project README\n",
+        encoding="utf-8",
+    )
+
+    code = main(
+        [
+            "--format",
+            "json",
+            "concept",
+            "create",
+            "concept",
+            "--bundle",
+            str(bundle),
+            "--type",
+            "Reference",
+            "--resource",
+            "README.md",
+            "--sources-file",
+            str(sources_file),
+            "--no-index",
+            "--no-log",
+        ]
+    )
+
+    assert code == 0
+    metadata = parse_concept((bundle / "concept.md").read_text(encoding="utf-8")).metadata
+    assert metadata["resource"] == "README.md"
+    assert metadata["sources"][0]["id"] == "readme"
+
+
+def test_concept_create_rejects_empty_resource(tmp_path: Path) -> None:
+    bundle = make_bundle(tmp_path)
+
+    with pytest.raises(ConfigurationError):
+        create(bundle, "concept", resource="")
+
+
+def test_concept_create_dry_run_includes_provenance_without_writing(tmp_path: Path) -> None:
+    bundle = make_bundle(tmp_path)
+    fs = FileSystem(dry_run=True)
+
+    create(
+        bundle,
+        "concept",
+        resource="README.md",
+        sources=({"id": "readme", "resource": "README.md"},),
+        fs=fs,
+    )
+
+    assert not (bundle / "concept.md").exists()
+    planned = next(change.content for change in fs.changes if change.path == bundle / "concept.md")
+    metadata = parse_concept(planned).metadata
+    assert metadata["resource"] == "README.md"
+    assert metadata["sources"][0]["id"] == "readme"
+
+
+def test_concept_create_with_sources_validates_end_to_end(tmp_path: Path) -> None:
+    bundle = make_bundle(tmp_path)
+    source = tmp_path / "project" / "README.md"
+    source.write_text("Project README\n", encoding="utf-8")
+
+    create(
+        bundle,
+        "concept",
+        sources=({"id": "readme", "resource": "../README.md"},),
+    )
+
+    from okf_cli.validation import validate_bundle
+
+    assert [finding for finding in validate_bundle(bundle) if finding.severity == "error"] == []
+
+
+def test_existing_create_callers_remain_compatible_without_provenance(tmp_path: Path) -> None:
+    bundle = make_bundle(tmp_path)
+
+    create(bundle, "concept", body="legacy caller")
+
+    metadata = parse_concept((bundle / "concept.md").read_text(encoding="utf-8")).metadata
+    assert "resource" not in metadata
+    assert "sources" not in metadata
 
 
 def test_concept_and_log_commands_emit_json_contract(tmp_path: Path, capsys: object) -> None:
