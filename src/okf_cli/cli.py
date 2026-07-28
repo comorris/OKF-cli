@@ -3,15 +3,18 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from datetime import date
 from pathlib import Path
 from typing import Sequence
 
 from . import __version__
 from .bundles import init_bundle
 from .catalog import init_catalog, list_bundles, register_bundle
+from .concepts import create_concept
 from .config import config_report, resolve_catalog
 from .errors import ConfigurationError, OkfError, OperationalError
 from .filesystem import FileSystem
+from .logs import add_log
 from .operations import OperationResult
 from .output import CommandResult, render_error, render_result
 from .paths import discover_bundle
@@ -94,6 +97,37 @@ def build_parser() -> argparse.ArgumentParser:
     _add_format_option(bundle_list)
     _add_catalog_option(bundle_list)
 
+    concept = commands.add_parser("concept", help="manage concepts")
+    concept_commands = concept.add_subparsers(dest="concept_command", required=True)
+    concept_create = concept_commands.add_parser("create", help="create a concept")
+    _add_format_option(concept_create)
+    _add_bundle_option(concept_create)
+    concept_create.add_argument("concept_id")
+    concept_create.add_argument("--type", dest="concept_type", required=True)
+    concept_create.add_argument("--title")
+    concept_create.add_argument("--description")
+    concept_create.add_argument("--tag", dest="tags", action="append", default=[])
+    concept_create.add_argument("--status", choices=("draft", "stable", "deprecated"))
+    concept_create.add_argument("--generated-by", default="okf-cli/0.1.0")
+    concept_create.add_argument("--force", action="store_true")
+    concept_create.add_argument("--no-index", dest="no_index", action="store_true")
+    concept_create.add_argument("--no-log", dest="no_log", action="store_true")
+    body = concept_create.add_mutually_exclusive_group()
+    body.add_argument("--body")
+    body.add_argument("--body-file", type=Path)
+    concept_create.add_argument("--dry-run", action="store_true")
+
+    log = commands.add_parser("log", help="manage update logs")
+    log_commands = log.add_subparsers(dest="log_command", required=True)
+    log_add = log_commands.add_parser("add", help="append a log entry")
+    _add_format_option(log_add)
+    _add_bundle_option(log_add)
+    log_add.add_argument("--scope", default="", help="bundle-relative directory scope")
+    log_add.add_argument("--kind", choices=("Initialization", "Creation", "Update", "Deprecation"), required=True)
+    log_add.add_argument("--message", required=True)
+    log_add.add_argument("--date")
+    log_add.add_argument("--dry-run", action="store_true")
+
     return parser
 
 
@@ -131,6 +165,24 @@ def _operation_data(result: OperationResult) -> dict[str, object]:
             for change in result.changes
         ]
     return data
+
+
+def _body_from_args(args: argparse.Namespace) -> str:
+    if args.body_file is None:
+        return args.body or ""
+    try:
+        return args.body_file.read_bytes().decode("utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ConfigurationError(f"could not read UTF-8 body file {args.body_file}: {exc}") from exc
+
+
+def _date_from_arg(value: str | None) -> date:
+    if value is None:
+        return date.today()
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise ConfigurationError("--date must use YYYY-MM-DD") from exc
 
 
 def dispatch_command(args: argparse.Namespace) -> CommandResult:
@@ -183,6 +235,38 @@ def dispatch_command(args: argparse.Namespace) -> CommandResult:
         if command == "bundle.list":
             catalog_path = _catalog_path(getattr(args, "catalog", None), required=True)
             return CommandResult(command=command, data={"bundles": list_bundles(catalog_path)})
+
+        if command == "concept.create":
+            bundle_path = getattr(args, "bundle", None) or discover_bundle(Path.cwd())
+            result = create_concept(
+                bundle_path,
+                args.concept_id,
+                concept_type=args.concept_type,
+                title=args.title,
+                description=args.description,
+                tags=tuple(args.tags),
+                status=args.status,
+                body=_body_from_args(args),
+                generated_by=args.generated_by,
+                force=args.force,
+                rebuild=not args.no_index,
+                log_change=not args.no_log,
+                fs=FileSystem(dry_run=args.dry_run),
+            )
+            return CommandResult(command=command, data=_operation_data(result))
+
+        if command == "log.add":
+            bundle_path = getattr(args, "bundle", None) or discover_bundle(Path.cwd())
+            fs = FileSystem(dry_run=args.dry_run)
+            result = add_log(
+                bundle_path,
+                scope=args.scope,
+                kind=args.kind,
+                message=args.message,
+                date=_date_from_arg(args.date),
+                fs=fs,
+            )
+            return CommandResult(command=command, data=_operation_data(result))
     except OkfError:
         raise
     except (OSError, ValueError) as exc:

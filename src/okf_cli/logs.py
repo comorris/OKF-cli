@@ -5,6 +5,8 @@ from datetime import date as Date, datetime
 from pathlib import Path
 
 from .filesystem import FileSystem
+from .paths import contained_path
+from .operations import OperationResult
 from .validation import validate_log
 
 _VALID_KINDS = frozenset({"Initialization", "Creation", "Update", "Deprecation"})
@@ -35,6 +37,26 @@ def _render_groups(groups: dict[Date, list[str]]) -> str:
         lines.extend(groups[current])
         lines.append("")
     return "\n".join(lines).rstrip("\n") + "\n"
+
+
+def add_log(
+    bundle_root: Path,
+    *,
+    scope: str,
+    kind: str,
+    message: str,
+    date: Date,
+    fs: FileSystem,
+) -> OperationResult:
+    bundle_root = Path(bundle_root)
+    if scope in ("", "."):
+        target = bundle_root
+    else:
+        target = contained_path(bundle_root, scope)
+    if not fs.is_dir(target):
+        raise ValueError(f"log scope must be an existing directory: {target}")
+    path = append_log(target, kind, message, date=date, fs=fs)
+    return OperationResult(data={"path": str(path)}, changes=fs.changes)
 
 
 def append_log(
