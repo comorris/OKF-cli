@@ -10,7 +10,7 @@ from typing import Sequence
 from . import __version__
 from .bundles import init_bundle
 from .catalog import init_catalog, list_bundles, register_bundle
-from .concepts import create_concept
+from .concepts import _UNSET, create_concept, update_concept
 from .config import config_report, resolve_catalog
 from .errors import ConfigurationError, OkfError, OperationalError
 from .filesystem import FileSystem
@@ -122,6 +122,25 @@ def build_parser() -> argparse.ArgumentParser:
     body.add_argument("--body-file", type=Path)
     concept_create.add_argument("--dry-run", action="store_true")
 
+    concept_update = concept_commands.add_parser("update", help="update an existing concept")
+    _add_format_option(concept_update)
+    _add_bundle_option(concept_update)
+    concept_update.add_argument("concept_id")
+    concept_update.add_argument("--type", dest="concept_type")
+    concept_update.add_argument("--title")
+    concept_update.add_argument("--description")
+    concept_update.add_argument("--tag", dest="tags", action="append", default=None)
+    concept_update.add_argument("--status", choices=("draft", "stable", "deprecated"))
+    concept_update.add_argument("--resource")
+    concept_update.add_argument("--sources-file", type=Path)
+    concept_update.add_argument("--generated-by", default="okf-cli/0.1.0")
+    concept_update.add_argument("--no-index", dest="no_index", action="store_true")
+    concept_update.add_argument("--no-log", dest="no_log", action="store_true")
+    update_body = concept_update.add_mutually_exclusive_group()
+    update_body.add_argument("--body")
+    update_body.add_argument("--body-file", type=Path)
+    concept_update.add_argument("--dry-run", action="store_true")
+
     index = commands.add_parser("index", help="manage indexes")
     index_commands = index.add_subparsers(dest="index_command", required=True)
     index_rebuild = index_commands.add_parser("rebuild", help="rebuild all indexes")
@@ -191,6 +210,12 @@ def _body_from_args(args: argparse.Namespace) -> str:
         return args.body_file.read_bytes().decode("utf-8")
     except (OSError, UnicodeDecodeError) as exc:
         raise ConfigurationError(f"could not read UTF-8 body file {args.body_file}: {exc}") from exc
+
+
+def _optional_body_from_args(args: argparse.Namespace) -> object:
+    if args.body is None and args.body_file is None:
+        return _UNSET
+    return _body_from_args(args)
 
 
 def _date_from_arg(value: str | None) -> date:
@@ -273,6 +298,30 @@ def dispatch_command(args: argparse.Namespace) -> CommandResult:
                 fs=FileSystem(dry_run=args.dry_run),
             )
             return CommandResult(command=command, data=_operation_data(result))
+
+        if command == "concept.update":
+            bundle_path = getattr(args, "bundle", None) or discover_bundle(Path.cwd())
+            result = update_concept(
+                bundle_path,
+                args.concept_id,
+                concept_type=args.concept_type if args.concept_type is not None else _UNSET,
+                title=args.title if args.title is not None else _UNSET,
+                description=args.description if args.description is not None else _UNSET,
+                tags=tuple(args.tags) if args.tags is not None else _UNSET,
+                status=args.status if args.status is not None else _UNSET,
+                resource=args.resource if args.resource is not None else _UNSET,
+                sources=load_sources_file(args.sources_file) if args.sources_file else _UNSET,
+                body=_optional_body_from_args(args),
+                generated_by=args.generated_by,
+                rebuild=not args.no_index,
+                log_change=not args.no_log,
+                fs=FileSystem(dry_run=args.dry_run),
+            )
+            return CommandResult(
+                command=command,
+                data=_operation_data(result),
+                warnings=result.warnings,
+            )
 
         if command == "index.rebuild":
             bundle_path = getattr(args, "bundle", None) or discover_bundle(Path.cwd())
