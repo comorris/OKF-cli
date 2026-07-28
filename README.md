@@ -45,6 +45,11 @@ okf --format json bundle list --catalog ../okf
 # Concepts
 okf concept create architecture/overview --bundle ./okf --type Reference --title "Overview"
 okf --format json concept create architecture/overview --bundle ./okf --type Reference --title "Overview"
+okf --format json concept create architecture/overview \
+  --bundle ./okf --type Reference --resource README.md \
+  --sources-file ./sources.yaml --body-file ./overview.md --dry-run
+okf --format json concept update architecture/overview \
+  --bundle ./okf --title "Updated overview" --dry-run
 
 # Indexes and logs
 okf index rebuild --bundle ./okf
@@ -63,6 +68,24 @@ okf --format json validate --bundle ./okf
 support `--dry-run`; concept creation also supports `--force`, `--no-index`,
 and `--no-log`. Bundle initialization adds `/okf/` to the containing
 project's `.gitignore` unless `--no-gitignore` is passed.
+
+### Concept provenance and updates
+
+Creation accepts an optional `--resource` and a `--sources-file`. The source
+file is YAML or JSON with a top-level list; every entry requires `resource` and
+may include `id`, `title`, `author`, `usage_count`, `last_modified`,
+`usage_window: {from, to}`, and OKF extension fields. Source IDs are unique.
+Relative source paths are checked during validation; missing paths are warnings,
+not conformance errors. Unknown source fields are retained.
+
+`concept update` requires an existing concept and merges only options supplied
+on the command line. Omitted metadata, sources, body, and unknown frontmatter
+fields are preserved. Supplying `--sources-file` replaces `sources`; supplying
+`--body` or `--body-file` replaces the body. A no-op writes no files and adds
+no log entry. Meaningful updates atomically write the concept, rebuild indexes,
+and append one `Update` log entry unless `--no-index` or `--no-log` is passed.
+Use `concept update` for changes instead of replacing an existing concept with
+`concept create --force`.
 
 ## Configuration and portability
 
@@ -104,4 +127,7 @@ Agents should use explicit paths, prefer `--format json`, and preview
 mutations with `--dry-run` before applying them. Check the process exit code;
 do not infer success from partial output. Treat exit code 5 as a nonconformant
 bundle requiring inspection of `data.findings`, and treat exit code 4 as a
-conflict requiring an explicit decision before using `--force`.
+conflict requiring an explicit decision before using `--force`. For synthesized
+concepts, pass provenance through `--sources-file`; for existing concepts use
+`concept update`, preview it, apply the exact command without `--dry-run`, and
+validate afterward. Report warning-only missing source paths and no-op updates.
