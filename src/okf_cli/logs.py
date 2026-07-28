@@ -52,11 +52,11 @@ def append_log(
         raise ValueError(f"invalid log kind: {kind}")
     if not message.strip() or "\n" in message or "\r" in message:
         raise ValueError("log message must be a non-empty single line")
-    if not scope.is_dir() and not (fs.dry_run and not scope.exists()):
+    if not fs.is_dir(scope) and not (fs.dry_run and not fs.exists(scope)):
         raise ValueError(f"log scope must be a directory: {scope}")
 
     log_path = scope / "log.md"
-    existing = fs.read_text(log_path) if log_path.is_file() else ""
+    existing = fs.read_text(log_path) if fs.is_file(log_path) else ""
     groups = _read_groups(existing) if existing else {}
     groups.setdefault(date, []).append(f"* **{kind}**: {message.strip()}")
     content = _render_groups(groups)

@@ -5,8 +5,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from .documents import ConceptDocument, parse_concept
+from .documents import parse_concept
 from .filesystem import FileSystem
+from .operations import write_if_changed
 
 _RESERVED = {"index.md", "log.md"}
 
@@ -34,8 +35,8 @@ def _description_for(metadata: dict[str, Any]) -> str:
     return " ".join(description.split())
 
 
-def _concept_entry(path: Path, directory: Path) -> str:
-    document = parse_concept(path.read_text(encoding="utf-8"))
+def _concept_entry(path: Path, directory: Path, fs: FileSystem) -> str:
+    document = parse_concept(fs.read_text(path))
     title = _escape_label(_title_for(path, document.metadata))
     description = _description_for(document.metadata)
     link = path.relative_to(directory).as_posix()
@@ -51,11 +52,11 @@ def _group_entry(path: Path, directory: Path) -> str:
     return f"* [{label}]({link})"
 
 
-def _bundle_metadata(bundle_root: Path) -> dict[str, Any]:
+def _bundle_metadata(bundle_root: Path, fs: FileSystem) -> dict[str, Any]:
     bundle_document = bundle_root / "bundle.md"
-    if not bundle_document.is_file():
+    if not fs.is_file(bundle_document):
         return {}
-    return parse_concept(bundle_document.read_text(encoding="utf-8")).metadata
+    return parse_concept(fs.read_text(bundle_document)).metadata
 
 
 def _resource_link(reference_path: Path, resource: object, catalog_root: Path) -> str:
@@ -77,17 +78,18 @@ def _resource_link(reference_path: Path, resource: object, catalog_root: Path) -
     return relative or "./"
 
 
-def _catalog_entries(bundle_root: Path) -> list[str]:
+def _catalog_entries(bundle_root: Path, fs: FileSystem) -> list[str]:
     references_root = bundle_root / "bundles"
-    if not references_root.is_dir():
+    if not fs.is_dir(references_root):
         return []
+    references = [
+        candidate
+        for candidate in fs.iterdir(references_root)
+        if fs.is_file(candidate) and candidate.suffix == ".md" and candidate.name not in _RESERVED
+    ]
     entries: list[tuple[str, str]] = []
-    for path in _sort_paths(
-        [candidate for candidate in references_root.iterdir() if candidate.is_file() and candidate.suffix == ".md"]
-    ):
-        if path.name in _RESERVED:
-            continue
-        document = parse_concept(path.read_text(encoding="utf-8"))
+    for path in _sort_paths(references):
+        document = parse_concept(fs.read_text(path))
         title = _title_for(path, document.metadata)
         link = _resource_link(path, document.metadata.get("resource"), bundle_root)
         if not link:
@@ -103,6 +105,7 @@ def _catalog_entries(bundle_root: Path) -> list[str]:
 def _render_index(
     directory: Path,
     bundle_root: Path,
+    fs: FileSystem,
     *,
     root: bool,
     catalog: bool,
@@ -110,13 +113,15 @@ def _render_index(
 ) -> str:
     concepts = [
         path
-        for path in directory.iterdir()
-        if path.is_file() and path.suffix == ".md" and path.name not in _RESERVED
+        for path in fs.iterdir(directory)
+        if fs.is_file(path) and path.suffix == ".md" and path.name not in _RESERVED
     ]
     concepts = _sort_paths(concepts)
     if root:
         concepts = [path for path in concepts if path.name != "bundle.md"]
-    groups = _sort_paths([path for path in directory.iterdir() if path.is_dir() and not path.name.startswith(".")])
+    groups = _sort_paths(
+        [path for path in fs.iterdir(directory) if fs.is_dir(path) and not path.name.startswith(".")]
+    )
 
     lines: list[str] = []
     if root:
@@ -128,18 +133,18 @@ def _render_index(
             lines.extend(["", description])
         lines.append("")
         if catalog:
-            entries = _catalog_entries(bundle_root)
+            entries = _catalog_entries(bundle_root, fs)
             if entries:
                 lines.extend(["# Bundles", "", *entries, ""])
         elif concepts:
-            lines.extend(["# Concepts", "", *[_concept_entry(path, directory) for path in concepts], ""])
+            lines.extend(["# Concepts", "", *[_concept_entry(path, directory, fs) for path in concepts], ""])
         if groups and not catalog:
             lines.extend(["# Groups", "", *[_group_entry(path, directory) for path in groups], ""])
     else:
         title = _escape_label(directory.name.replace("-", " ").replace("_", " ").title())
         lines.extend([f"# {title}", ""])
         if concepts:
-            lines.extend(["# Concepts", "", *[_concept_entry(path, directory) for path in concepts], ""])
+            lines.extend(["# Concepts", "", *[_concept_entry(path, directory, fs) for path in concepts], ""])
         if groups:
             lines.extend(["# Groups", "", *[_group_entry(path, directory) for path in groups], ""])
 
@@ -148,14 +153,22 @@ def _render_index(
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
-def _directories(bundle_root: Path) -> list[Path]:
-    directories = [bundle_root]
-    directories.extend(
-        sorted(
-            (path for path in bundle_root.rglob("*") if path.is_dir() and not path.name.startswith(".")),
-            key=lambda path: path.relative_to(bundle_root).as_posix().casefold(),
-        )
-    )
+def _directories(bundle_root: Path, fs: FileSystem) -> list[Path]:
+    directories: list[Path] = []
+    pending = [bundle_root]
+    seen: set[Path] = set()
+    while pending:
+        directory = pending.pop(0)
+        if directory in seen or not fs.is_dir(directory):
+            continue
+        seen.add(directory)
+        directories.append(directory)
+        children = [
+            path
+            for path in fs.iterdir(directory)
+            if fs.is_dir(path) and not path.name.startswith(".")
+        ]
+        pending.extend(_sort_paths(children))
     return directories
 
 
@@ -166,17 +179,18 @@ def rebuild_indexes(
     catalog: bool = False,
 ) -> list[Path]:
     bundle_root = Path(bundle_root)
-    metadata = _bundle_metadata(bundle_root)
+    metadata = _bundle_metadata(bundle_root, fs)
     written: list[Path] = []
-    for directory in _directories(bundle_root):
+    for directory in _directories(bundle_root, fs):
         path = directory / "index.md"
         content = _render_index(
             directory,
             bundle_root,
+            fs,
             root=directory == bundle_root,
             catalog=catalog and directory == bundle_root,
             metadata=metadata,
         )
-        fs.write_text(path, content)
+        write_if_changed(fs, path, content)
         written.append(path)
     return written
