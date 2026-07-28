@@ -165,6 +165,31 @@ def validate_concept(
     findings.extend(_validate_generated(metadata, path_text))
     findings.extend(_validate_verified(metadata, path_text))
     findings.extend(_validate_staleness(metadata, path_text, today or date.today()))
+    if "sources" in metadata:
+        from .sources import validate_sources_value
+
+        findings.extend(
+            validate_sources_value(
+                metadata["sources"],
+                path=path_text,
+                document_path=path,
+                bundle_root=bundle_root,
+            )
+        )
+        source_ids = {
+            source["id"]
+            for source in metadata["sources"]
+            if isinstance(source, Mapping) and isinstance(source.get("id"), str)
+        } if isinstance(metadata["sources"], list) else set()
+        for source_id in re.findall(r"\[\^([^\]]+)\]", document.body):
+            if source_id not in source_ids:
+                findings.append(
+                    _warning(
+                        "unmatched-source-footnote",
+                        path_text,
+                        f"source footnote has no matching source id: {source_id}",
+                    )
+                )
     findings.extend(_validate_links(document, path, bundle_root))
     return findings
 

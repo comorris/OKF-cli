@@ -92,3 +92,35 @@ def test_stale_after_on_or_before_today_is_warning() -> None:
 
         assert errors(findings) == []
         assert any(finding.code == "stale-concept" for finding in findings)
+
+
+def test_source_footnote_without_matching_id_is_warning() -> None:
+    document = ConceptDocument(
+        metadata={"type": "Reference", "sources": [{"id": "readme", "resource": "README.md"}]},
+        body="This claim cites [^missing].\n",
+    )
+
+    findings = validate_concept(document, path="concept.md")
+
+    assert errors(findings) == []
+    assert any(finding.code == "unmatched-source-footnote" for finding in findings)
+
+
+def test_relative_source_outside_bundle_is_allowed_when_it_exists(tmp_path: Path) -> None:
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    external = tmp_path / "README.md"
+    external.write_text("external source\n", encoding="utf-8")
+    document = ConceptDocument(
+        metadata={"type": "Reference", "sources": [{"resource": "../README.md"}]},
+        body="",
+    )
+
+    findings = validate_concept(
+        document,
+        path=bundle / "concept.md",
+        bundle_root=bundle,
+    )
+
+    assert errors(findings) == []
+    assert not any(finding.code == "missing-source-resource" for finding in findings)
