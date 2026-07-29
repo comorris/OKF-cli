@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
+README = ROOT / "README.md"
 SKILL = ROOT / "skills" / "okf-cli" / "SKILL.md"
+OKF = ROOT / ".venv" / "bin" / "okf"
 
 
 def _skill_parts() -> tuple[dict[str, object], str]:
@@ -35,6 +38,41 @@ def test_packaged_skill_archive_helper_reference_resolves() -> None:
 
     assert helper == ROOT / "scripts" / "extract_pi_archive.py"
     assert helper.is_file()
+
+
+def test_readme_documents_pi_skill_installation() -> None:
+    readme = README.read_text(encoding="utf-8")
+    readme_lower = readme.lower()
+
+    assert "pi install git:github.com/comorris/OKF-cli" in readme
+    assert "/skill:okf-cli" in readme
+    assert "okf-cli 0.2.0" in readme
+    assert "installing the skill" in readme_lower
+    assert "installing the `okf` executable" in readme_lower
+
+
+def test_readme_provenance_options_match_cli_help() -> None:
+    readme = README.read_text(encoding="utf-8")
+    create_help = subprocess.run(
+        [str(OKF), "concept", "create", "--help"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    update_help = subprocess.run(
+        [str(OKF), "concept", "update", "--help"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+
+    for option in ("--resource", "--sources-file"):
+        assert option in readme
+        assert option in create_help
+        assert option in update_help
+    assert "concept update" in readme
+    assert "--force" in create_help
+    assert "--force" not in update_help
 
 
 def test_packaged_skill_documents_current_capabilities_and_privacy_rules() -> None:

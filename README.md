@@ -50,6 +50,29 @@ okf --version                         # okf-cli 0.2.0
 okf concept update --help             # includes --resource and --sources-file
 ```
 
+## Pi skill installation
+
+Install the packaged Pi skill directly from GitHub:
+
+```bash
+pi install git:github.com/comorris/OKF-cli
+```
+
+Invoke it in Pi with `/skill:okf-cli`. The skill requires `okf-cli 0.2.0+` and
+checks that the installed command exposes the provenance flags on `concept
+create` and `concept update`, while rejecting stale `concept update` commands
+that expose `--force`.
+
+Installing the skill and installing the `okf` executable are separate
+operations. The Git package installs the skill guidance; install or update the
+CLI independently with `pipx`, `uv`, or the development virtualenv:
+
+```bash
+pipx install /path/to/okf-cli
+uv tool install /path/to/okf-cli
+okf --version
+```
+
 ## Commands
 
 Commands write successful results to stdout and diagnostics to stderr. They
