@@ -215,6 +215,83 @@ def register_bundle(
     )
 
 
+def unregister_bundle(
+    catalog_root: Path,
+    bundle_root: Path,
+    *,
+    now: datetime | None = None,
+    fs: FileSystem,
+) -> OperationResult:
+    """Remove catalog references by resolved target path, even if the target is gone.
+
+    Render the complete operation before applying it. This avoids partial deletion
+    on invalid input, but does not provide rollback for I/O failures or concurrent
+    catalog modifications.
+    """
+    if not fs.dry_run:
+        from copy import deepcopy
+
+        preview_fs = deepcopy(fs)
+        preview_fs.dry_run = True
+        result = unregister_bundle(catalog_root, bundle_root, now=now, fs=preview_fs)
+        for change in result.changes[len(fs.changes):]:
+            if change.operation == "delete":
+                fs.remove_file(change.path)
+            elif change.operation == "write":
+                fs.write_text(change.path, change.content)
+            else:
+                raise AssertionError(f"unexpected unregister operation: {change.operation}")
+        return OperationResult(data=result.data, changes=fs.changes)
+
+    catalog_root = Path(catalog_root)
+    bundle_root = Path(bundle_root).resolve(strict=False)
+    if not fs.is_dir(catalog_root / "bundles") or not fs.is_file(catalog_root / "bundle.md"):
+        raise ConfigurationError(f"catalog does not exist: {catalog_root}")
+
+    # Index rebuilding visits every visible directory. Refuse links before
+    # traversal, including dangling links that is_file() would silently omit.
+    pending = [catalog_root]
+    while pending:
+        directory = pending.pop()
+        if directory.is_symlink():
+            raise ConfigurationError(f"symlink catalog path is not supported: {directory}")
+        for path in fs.iterdir(directory):
+            if path.is_symlink():
+                raise ConfigurationError(f"symlink catalog path is not supported: {path}")
+            if fs.is_dir(path):
+                if path.name in {"index.md", "log.md"}:
+                    raise ConfigurationError(f"catalog output path is a directory: {path}")
+                if not path.name.startswith("."):
+                    pending.append(path)
+
+    matches: list[Path] = []
+    # Validate every reference before deleting anything; don't silently skip bad records.
+    for reference_path in _reference_paths(catalog_root, fs):
+        metadata, _ = _reference_document(reference_path, fs)
+        target = _resolve_resource(reference_path, metadata.get("resource"))
+        if target is None:
+            raise ConfigurationError(f"invalid bundle reference resource in {reference_path}")
+        if target == bundle_root:
+            matches.append(reference_path)
+
+    for reference_path in sorted(matches):
+        fs.remove_file(reference_path)
+    if matches:
+        append_log(
+            catalog_root,
+            "Deprecation",
+            f"Unregistered bundle at {bundle_root} ({len(matches)} reference(s)).",
+            date=(now or datetime.now(timezone.utc)).date(),
+            fs=fs,
+        )
+        rebuild_indexes(catalog_root, fs, catalog=True)
+    return OperationResult(
+        data={"bundle": str(bundle_root), "unregistered": bool(matches),
+              "paths": [str(path) for path in sorted(matches)]},
+        changes=fs.changes,
+    )
+
+
 def list_bundles(catalog_root: Path) -> list[dict[str, str]]:
     catalog_root = Path(catalog_root)
     directory = catalog_root / "bundles"

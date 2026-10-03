@@ -9,7 +9,7 @@ from typing import Sequence
 
 from . import DEFAULT_ACTOR, __version__
 from .bundles import init_bundle
-from .catalog import init_catalog, list_bundles, register_bundle
+from .catalog import init_catalog, list_bundles, register_bundle, unregister_bundle
 from .concepts import _UNSET, create_concept, update_concept
 from .config import config_report, resolve_catalog
 from .errors import ConfigurationError, OkfError, OperationalError
@@ -95,6 +95,12 @@ def build_parser() -> argparse.ArgumentParser:
     _add_catalog_option(bundle_register)
     bundle_register.add_argument("--generated-by", default=DEFAULT_ACTOR)
     bundle_register.add_argument("--dry-run", action="store_true")
+
+    bundle_unregister = bundle_commands.add_parser("unregister", help="remove references to a bundle from a catalog")
+    _add_format_option(bundle_unregister)
+    bundle_unregister.add_argument("--bundle", required=True, type=Path, help="target bundle path (may no longer exist)")
+    _add_catalog_option(bundle_unregister)
+    bundle_unregister.add_argument("--dry-run", action="store_true")
 
     bundle_list = bundle_commands.add_parser("list", help="list registered bundles")
     _add_format_option(bundle_list)
@@ -270,6 +276,15 @@ def dispatch_command(args: argparse.Namespace) -> CommandResult:
                 catalog_path,
                 bundle_path,
                 generated_by=args.generated_by,
+                fs=FileSystem(dry_run=args.dry_run),
+            )
+            return CommandResult(command=command, data=_operation_data(result))
+
+        if command == "bundle.unregister":
+            catalog_path = _catalog_path(getattr(args, "catalog", None), required=True)
+            result = unregister_bundle(
+                catalog_path,
+                args.bundle,
                 fs=FileSystem(dry_run=args.dry_run),
             )
             return CommandResult(command=command, data=_operation_data(result))

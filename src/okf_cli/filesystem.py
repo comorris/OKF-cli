@@ -18,6 +18,7 @@ class FileSystem:
         self.dry_run = dry_run
         self._changes: list[PlannedChange] = []
         self._planned_files: dict[Path, str] = {}
+        self._deleted_files: set[Path] = set()
         self._planned_dirs: set[Path] = set()
 
     @property
@@ -37,6 +38,7 @@ class FileSystem:
         change = PlannedChange(path=path, operation="write", content=content)
         self._changes.append(change)
         self._planned_files[path] = content
+        self._deleted_files.discard(path)
         self._record_virtual_parents(path)
         if self.dry_run:
             return
@@ -64,6 +66,16 @@ class FileSystem:
                 except FileNotFoundError:
                     pass
 
+    def remove_file(self, path: Path) -> None:
+        path = Path(path)
+        if not self.is_file(path):
+            raise FileNotFoundError(path)
+        if not self.dry_run:
+            path.unlink()
+        self._changes.append(PlannedChange(path=path, operation="delete", content=""))
+        self._planned_files.pop(path, None)
+        self._deleted_files.add(path)
+
     def mkdir(self, path: Path) -> None:
         path = Path(path)
         if self.is_dir(path):
@@ -76,11 +88,11 @@ class FileSystem:
 
     def exists(self, path: Path) -> bool:
         path = Path(path)
-        return path.exists() or path in self._planned_files or path in self._planned_dirs
+        return path in self._planned_files or (path not in self._deleted_files and path.exists()) or path in self._planned_dirs
 
     def is_file(self, path: Path) -> bool:
         path = Path(path)
-        return path.is_file() or path in self._planned_files
+        return path in self._planned_files or (path not in self._deleted_files and path.is_file())
 
     def is_dir(self, path: Path) -> bool:
         path = Path(path)
@@ -97,6 +109,8 @@ class FileSystem:
         for child in self._planned_dirs:
             if child.parent == path:
                 children[child] = None
+        for child in self._deleted_files:
+            children.pop(child, None)
         if not children and not self.is_dir(path):
             raise FileNotFoundError(path)
         return tuple(sorted(children, key=lambda child: child.name))
@@ -105,4 +119,6 @@ class FileSystem:
         path = Path(path)
         if path in self._planned_files:
             return self._planned_files[path]
+        if path in self._deleted_files:
+            raise FileNotFoundError(path)
         return path.read_text(encoding="utf-8")

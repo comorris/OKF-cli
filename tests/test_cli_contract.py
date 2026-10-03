@@ -65,6 +65,44 @@ def test_help_documents_concept_update_without_force(capsys: pytest.CaptureFixtu
     assert "--force" not in captured.out
 
 
+def test_unregister_cli_requires_bundle_and_reports_preview_and_noop(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from okf_cli.catalog import init_catalog, register_bundle
+    from okf_cli.bundles import init_bundle
+    from okf_cli.filesystem import FileSystem
+
+    catalog = tmp_path / "catalog"
+    bundle = tmp_path / "project" / "okf"
+    init_catalog(catalog, title="Projects", description="Catalog.", fs=FileSystem())
+    init_bundle(bundle, title="Project", description="Knowledge.", catalog=None,
+                update_gitignore=False, fs=FileSystem())
+    register_bundle(catalog, bundle, fs=FileSystem())
+    args = ["--format", "json", "bundle", "unregister", "--bundle", str(bundle), "--catalog", str(catalog)]
+    assert main(args + ["--dry-run"]) == 0
+    preview = json.loads(capsys.readouterr().out)
+    assert preview["command"] == "bundle.unregister"
+    assert preview["data"]["unregistered"] is True
+    assert any(c["operation"] == "delete" for c in preview["data"]["changes"])
+    assert (catalog / "bundles" / "project.md").exists()
+
+    assert main(args) == 0
+    applied = json.loads(capsys.readouterr().out)
+    assert applied["data"] == preview["data"]
+    assert not (catalog / "bundles" / "project.md").exists()
+    assert main(args) == 0
+    noop = json.loads(capsys.readouterr().out)
+    assert noop["data"]["unregistered"] is False
+    assert "changes" not in noop["data"]
+
+    assert main(["--format", "json", "bundle", "unregister", "--catalog", str(catalog)]) == 2
+    capsys.readouterr()
+    assert main(["--format", "json", "bundle", "unregister", "--bundle", str(bundle),
+                 "--catalog", str(tmp_path / "missing")]) == 3
+    error = json.loads(capsys.readouterr().err)
+    assert error["command"] == "bundle.unregister"
+
+
 def test_invalid_sources_file_returns_configuration_exit_three(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

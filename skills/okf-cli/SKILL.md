@@ -221,6 +221,23 @@ okf --format json bundle register \
 
 After applying, validate the catalog and confirm exactly one matching entry with `bundle list`.
 
+## Unregister a bundle
+
+Use an explicit absolute target path even when the target directory has been deleted.
+Preview with `--dry-run`, inspect that `data.paths` and all `data.changes`
+refer only to the intended catalog references, indexes, and log, then apply
+with only `--dry-run` removed:
+
+```bash
+okf --format json bundle unregister \
+  --bundle "$BUNDLE_ROOT" --catalog "$CATALOG_ROOT" --dry-run
+```
+
+The command removes matching catalog references, not the bundle directory.
+An unmatched target is a no-op. Validate the catalog and use `bundle list`
+to verify the intended path is absent and all unrelated registrations remain.
+Report validation warnings, including historical missing-source warnings.
+
 ## Create a concept
 
 Concept IDs are bundle-relative paths without `.md`, for example `architecture/system-overview`. Require a non-empty type. Prefer `--body-file` for multiline bodies; create the temporary file outside the bundle and remove it after the command.
@@ -388,7 +405,7 @@ Do not claim completion without fresh validation output from the final filesyste
 Use this skill when the user asks to:
 
 - create or initialize an OKF catalog or project bundle;
-- register or list knowledge bundles;
+- register, unregister, or list knowledge bundles;
 - create an OKF concept;
 - rebuild OKF indexes;
 - append an OKF update log;

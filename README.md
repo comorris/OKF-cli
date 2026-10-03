@@ -94,6 +94,8 @@ okf bundle init --bundle ./okf --catalog ../okf --title "Project" --description 
 okf --format json bundle init --bundle ./okf --catalog ../okf --title "Project" --description "Project knowledge."
 okf bundle register --bundle ./okf --catalog ../okf
 okf --format json bundle register --bundle ./okf --catalog ../okf
+okf --format json bundle unregister --bundle /path/to/old/okf --catalog /path/to/catalog --dry-run
+okf --format json bundle unregister --bundle /path/to/old/okf --catalog /path/to/catalog
 okf bundle list --catalog ../okf
 okf --format json bundle list --catalog ../okf
 
@@ -123,6 +125,16 @@ okf --format json validate --bundle ./okf
 support `--dry-run`; concept creation also supports `--force`, `--no-index`,
 and `--no-log`. Bundle initialization adds `/okf/` to the containing
 project's `.gitignore` unless `--no-gitignore` is passed.
+
+`bundle unregister` requires an explicit target `--bundle` path, which may
+no longer exist. It removes all catalog references whose resolved resource
+matches that path, updates catalog indexes, and appends a `Deprecation` log
+entry. It never deletes the target bundle. No matching references is a no-op.
+Inspect the JSON `data.changes` in a `--dry-run` before applying; validate and
+list the catalog afterward. Unregister refuses symlinks in the traversed catalog
+tree and prepares all log/index output before deleting references, so malformed
+input does not cause partial deletion. Application is not a multi-file transaction:
+I/O failures or concurrent catalog changes can still leave partial results.
 
 ### Concept provenance and updates
 
